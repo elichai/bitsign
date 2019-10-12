@@ -1,37 +1,45 @@
 use bitcoin::hashes::{sha256::Hash as Sha256, Hash, HashEngine, Hmac, HmacEngine};
+use std::{ptr, sync::atomic};
 
 const BLOCK_SIZE: usize = Sha256::LEN;
 
 pub struct HKDFExtract;
 
-pub struct HKDFExpand(Hmac<Sha256>);
+// TODO: Impl drop with cleanup.
+pub struct HKDFExpand {
+    prk: Hmac<Sha256>,
+    count: u8,
+}
 
 impl HKDFExtract {
-    pub fn extract(mut salt: &[u8], input: &[u8]) -> HKDFExpand {
-        if salt.is_empty() {
-            // TODO: this isn't needed because xoring with zero does nothing.
-            salt = &[0u8; BLOCK_SIZE];
-        }
+    pub fn extract(salt: &[u8], input: &[u8]) -> HKDFExpand {
+        // No need to check if empty to pass zeros because xoring with zeros is meaningless.
         let mut hmac = HmacEngine::<Sha256>::new(salt);
         hmac.input(input);
-        HKDFExpand(Hmac::from_engine(hmac))
+        HKDFExpand { prk: Hmac::from_engine(hmac), count: 1 }
     }
 }
 
 impl HKDFExpand {
-    pub fn expand(self, info: &[u8], buf: &mut [u8]) {
-        assert!(buf.len() <= BLOCK_SIZE * 255);
+    pub fn expand(&mut self, info: &[u8], buf: &mut [u8]) {
+        assert!(buf.len() as usize <= BLOCK_SIZE * (256 - self.count as usize));
         let mut t: &[u8] = &[];
-        let mut hmac_res;
-        for (i, block) in buf.chunks_mut(BLOCK_SIZE).enumerate() {
-            let mut hmac = HmacEngine::<Sha256>::new(&self.0[..]);
+        let mut hmac_res = Default::default();
+        for block in buf.chunks_mut(BLOCK_SIZE) {
+            let mut hmac = HmacEngine::<Sha256>::new(&self.prk[..]);
             hmac.input(&t[..]);
             hmac.input(info);
-            hmac.input(&[1 + i as u8]);
+            hmac.input(&[self.count]);
             hmac_res = Hmac::from_engine(hmac);
             t = &hmac_res[..];
             block.copy_from_slice(&t[..block.len()]);
+            self.count += 1;
         }
+        atomic::compiler_fence(atomic::Ordering::SeqCst);
+        unsafe {
+            ptr::write_volatile(&mut hmac_res, Default::default());
+        }
+        atomic::compiler_fence(atomic::Ordering::SeqCst);
     }
 }
 
@@ -85,8 +93,8 @@ mod tests {
 
         for (i, test) in tests.iter().enumerate() {
             println!("{}", i);
-            let prk = HKDFExtract::extract(&test.salt, &test.ikm);
-            assert_eq!(&prk.0[..], &test.prk[..]);
+            let mut prk = HKDFExtract::extract(&test.salt, &test.ikm);
+            assert_eq!(&prk.prk[..], &test.prk[..]);
             let mut okm = vec![0u8; test.okm.len()];
             prk.expand(&test.info, &mut okm);
             assert_eq!(okm, test.okm);

@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 structopt = "0.3"
 bitcoin = "0.21"
+getrandom = "0.1"
