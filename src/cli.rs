@@ -1,5 +1,5 @@
 use crate::AddressType;
-use bitcoin::{Network, PrivateKey};
+use bitcoin::{Network, PrivateKey, Address};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -25,6 +25,16 @@ pub enum Options {
         privkey: PrivateKey,
         /// The message to sign on.
         message: String,
+    },
+    /// Verify a message signed by a bitcoin address.
+    Verify {
+        /// The bitcoin address
+        #[structopt(parse(try_from_str))]
+        address: Address,
+        /// The message being verified.
+        message: String,
+        /// The Base64 Signature.
+        signature: String,
     }
 }
 

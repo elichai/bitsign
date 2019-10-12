@@ -12,7 +12,10 @@ use std::{io, sync::atomic};
 use structopt::clap::{Error as ClapError, ErrorKind as ClapErrorKind};
 use structopt::StructOpt;
 use bitcoin::util::misc;
-use secp256k1::Message;
+use bitcoin::secp256k1::Message;
+use bitcoin::secp256k1::recovery::{RecoveryId, RecoverableSignature};
+use bitcoin::util::key::PublicKey as BitcoinPublicKey;
+use bitcoin::util::address::Payload;
 
 const INFO: &[u8] = b"bitsign";
 
@@ -40,9 +43,10 @@ fn main() {
 }
 
 fn handle_cli(opt: Options) -> Result<(), ClapError> {
-    let secp = Secp256k1::signing_only();
     match opt {
         Options::Generate { net, uncompressed, address_type } => {
+            let secp = Secp256k1::signing_only();
+
             let mut entropy = vec![0u8; 32];
             getrandom(&mut entropy).unwrap();
 
@@ -71,6 +75,8 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             atomic::compiler_fence(atomic::Ordering::SeqCst);
         },
         Options::Sign { mut privkey, message } => {
+            let secp = Secp256k1::signing_only();
+
             let hash = misc::signed_msg_hash(&message);
             let msg = Message::from_slice(&hash[..]).unwrap(); // Can never panic because it's the right size.
             let (id, sig) = secp.sign_recoverable(&msg, &privkey.key).serialize_compact();
@@ -91,6 +97,37 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
                 cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
             }
             atomic::compiler_fence(atomic::Ordering::SeqCst);
+        },
+        Options::Verify { address, message, signature } => {
+            let secp = Secp256k1::verification_only();
+
+            let invalid_sig = || ClapError::with_description("Invalid Signature", ClapErrorKind::ValueValidation);
+            let sig = base64::decode(&signature).map_err(|_| {
+                ClapError::with_description("The signature isn't a valid base64", ClapErrorKind::ValueValidation)
+            })?;
+            if sig.len() != 65 {
+                return Err(invalid_sig());
+            }
+            let recid = RecoveryId::from_i32(((sig[0] - 27) & 3) as i32).map_err(|_|invalid_sig())?;
+            let recsig = RecoverableSignature::from_compact(&sig[1..], recid).map_err(|_| invalid_sig())?;
+            let hash = misc::signed_msg_hash(&message);
+            let msg = Message::from_slice(&hash[..]).unwrap(); // Can never panic because it's the right size.
+
+            let pubkey = BitcoinPublicKey {
+                key : secp.recover(&msg, &recsig).map_err(|_| invalid_sig())?,
+                compressed: ((sig[0] - 27) & 4) != 0
+            };
+
+            let restore = match address.payload {
+                Payload::PubkeyHash (_) => Address::p2pkh(&pubkey, address.network),
+                Payload::WitnessProgram{..} => Address::p2wpkh(&pubkey, address.network),
+                Payload::ScriptHash(_) => Address::p2shwpkh(&pubkey, address.network),
+            };
+            if address == restore {
+                println!("Signature Verified!");
+            } else {
+                println!("Failed Verifying the signature");
+            }
         }
     };
 
