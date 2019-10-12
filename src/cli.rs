@@ -1,11 +1,11 @@
 use crate::AddressType;
-use bitcoin::{Network, PrivateKey, Address};
+use bitcoin::{Address, Network, PrivateKey};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "BitSign", about = "A tool for Generating Bitcoin Keys, signing and verifying.")]
+#[structopt(name = "Bitsign", about = "A tool for Generating Bitcoin Keys, signing and verifying.")]
 pub enum Options {
-    /// Generate Pairs of keys.
+    /// Generate a pair of keys.
     Generate {
         // TODO: Rename Bitcoin to Mainnet.
         // TODO: Make lowercase.
@@ -35,7 +35,7 @@ pub enum Options {
         message: String,
         /// The Base64 Signature.
         signature: String,
-    }
+    },
 }
 
 fn parse_address_type(src: &str) -> Result<AddressType, &'static str> {

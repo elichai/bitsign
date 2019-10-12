@@ -5,7 +5,6 @@ const BLOCK_SIZE: usize = Sha256::LEN;
 
 pub struct HKDFExtract;
 
-// TODO: Impl drop with cleanup.
 pub struct HKDFExpand {
     prk: Hmac<Sha256>,
     count: u8,
@@ -38,6 +37,16 @@ impl HKDFExpand {
         atomic::compiler_fence(atomic::Ordering::SeqCst);
         unsafe {
             ptr::write_volatile(&mut hmac_res, Default::default());
+        }
+        atomic::compiler_fence(atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for HKDFExpand {
+    fn drop(&mut self) {
+        atomic::compiler_fence(atomic::Ordering::SeqCst);
+        unsafe {
+            ptr::write_volatile(&mut self.prk, Default::default());
         }
         atomic::compiler_fence(atomic::Ordering::SeqCst);
     }

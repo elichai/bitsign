@@ -2,7 +2,11 @@ mod cli;
 mod hkdf;
 
 use bitcoin::secp256k1::constants::SECRET_KEY_SIZE;
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::secp256k1::recovery::{RecoverableSignature, RecoveryId};
+use bitcoin::secp256k1::{Message, Secp256k1, SecretKey};
+use bitcoin::util::address::Payload;
+use bitcoin::util::key::PublicKey as BitcoinPublicKey;
+use bitcoin::util::misc;
 use bitcoin::{Address, PrivateKey};
 use cli::Options;
 use getrandom::getrandom;
@@ -11,11 +15,6 @@ use std::io::BufRead;
 use std::{io, sync::atomic};
 use structopt::clap::{Error as ClapError, ErrorKind as ClapErrorKind};
 use structopt::StructOpt;
-use bitcoin::util::misc;
-use bitcoin::secp256k1::Message;
-use bitcoin::secp256k1::recovery::{RecoveryId, RecoverableSignature};
-use bitcoin::util::key::PublicKey as BitcoinPublicKey;
-use bitcoin::util::address::Payload;
 
 const INFO: &[u8] = b"bitsign";
 
@@ -73,7 +72,8 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
                 cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
             }
             atomic::compiler_fence(atomic::Ordering::SeqCst);
-        },
+        }
+
         Options::Sign { mut privkey, message } => {
             let secp = Secp256k1::signing_only();
 
@@ -83,11 +83,7 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             //vchSig[0] = 27 + rec + (fCompressed ? 4 : 0);
             let mut rec_sig = [0u8; 65];
             rec_sig[1..].copy_from_slice(&sig);
-            rec_sig[0] = if privkey.compressed {
-                27 + id.to_i32() as u8 + 4
-            } else {
-                27 + id.to_i32() as u8
-            };
+            rec_sig[0] = if privkey.compressed { 27 + id.to_i32() as u8 + 4 } else { 27 + id.to_i32() as u8 };
             let sig = base64::encode(&rec_sig[..]);
             println!("Signed Message: {}", sig);
 
@@ -97,34 +93,40 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
                 cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
             }
             atomic::compiler_fence(atomic::Ordering::SeqCst);
-        },
+        }
+
         Options::Verify { address, message, signature } => {
             let secp = Secp256k1::verification_only();
 
             let invalid_sig = || ClapError::with_description("Invalid Signature", ClapErrorKind::ValueValidation);
-            let sig = base64::decode(&signature).map_err(|_| {
-                ClapError::with_description("The signature isn't a valid base64", ClapErrorKind::ValueValidation)
-            })?;
+            let sig = base64::decode(&signature)
+                .map_err(|_| ClapError::with_description("The signature isn't a valid base64", ClapErrorKind::ValueValidation))?;
             if sig.len() != 65 {
                 return Err(invalid_sig());
             }
-            let recid = RecoveryId::from_i32(((sig[0] - 27) & 3) as i32).map_err(|_|invalid_sig())?;
+            let recid = RecoveryId::from_i32(i32::from((sig[0] - 27) & 3)).map_err(|_| invalid_sig())?;
             let recsig = RecoverableSignature::from_compact(&sig[1..], recid).map_err(|_| invalid_sig())?;
             let hash = misc::signed_msg_hash(&message);
             let msg = Message::from_slice(&hash[..]).unwrap(); // Can never panic because it's the right size.
 
             let pubkey = BitcoinPublicKey {
-                key : secp.recover(&msg, &recsig).map_err(|_| invalid_sig())?,
-                compressed: ((sig[0] - 27) & 4) != 0
+                key: secp.recover(&msg, &recsig).map_err(|_| invalid_sig())?,
+                compressed: ((sig[0] - 27) & 4) != 0,
             };
 
-            let restore = match address.payload {
-                Payload::PubkeyHash (_) => Address::p2pkh(&pubkey, address.network),
-                Payload::WitnessProgram{..} => Address::p2wpkh(&pubkey, address.network),
-                Payload::ScriptHash(_) => Address::p2shwpkh(&pubkey, address.network),
+            let (restore, core_supported) = match address.payload {
+                Payload::PubkeyHash(_) => (Address::p2pkh(&pubkey, address.network), true),
+                Payload::WitnessProgram { .. } => (Address::p2wpkh(&pubkey, address.network), false),
+                Payload::ScriptHash(_) => (Address::p2shwpkh(&pubkey, address.network), false),
             };
             if address == restore {
-                println!("Signature Verified!");
+                if core_supported {
+                    println!("Signature Verified!");
+                } else {
+                    println!(
+                        "Signature Verified!. Warning: This isn't a P2PKH so Bitcoin Core doesn't support verifying this signature"
+                    )
+                }
             } else {
                 println!("Failed Verifying the signature");
             }
