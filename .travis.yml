@@ -11,10 +11,8 @@ rust:
   - nightly
 
 script:
-  - cargo build --verbose --no-default-features
   - cargo build --verbose
-  - cargo test --verbose
-  - if [ ${TRAVIS_RUST_VERSION} == "stable" ]; then cargo test --features=doc-comment; fi
+  - echo "" | cargo test --verbose
 
 before_script:
   - if [ ${TRAVIS_RUST_VERSION} == "stable" ]; then

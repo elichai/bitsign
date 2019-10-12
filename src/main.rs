@@ -12,7 +12,7 @@ use cli::Options;
 use getrandom::getrandom;
 use hkdf::{HKDFExpand, HKDFExtract};
 use std::io::BufRead;
-use std::{io, sync::atomic};
+use std::{error, fmt, io, process, sync::atomic};
 use structopt::clap::{Error as ClapError, ErrorKind as ClapErrorKind};
 use structopt::StructOpt;
 
@@ -37,11 +37,40 @@ pub enum AddressType {
 fn main() {
     let opt = Options::from_args();
     if let Err(e) = handle_cli(opt) {
-        e.exit();
+        match e {
+            Error::Clap(e) => e.exit(),
+            Error::VerificationFailed => {
+                eprintln!("{}", e);
+                process::exit(1);
+            }
+        };
     }
 }
 
-fn handle_cli(opt: Options) -> Result<(), ClapError> {
+#[derive(Debug)]
+enum Error {
+    Clap(ClapError),
+    VerificationFailed,
+}
+
+impl error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Clap(e) => e.fmt(f),
+            Error::VerificationFailed => write!(f, "Failed Verifying the signature"),
+        }
+    }
+}
+
+impl From<ClapError> for Error {
+    fn from(error: ClapError) -> Self {
+        Error::Clap(error)
+    }
+}
+
+fn handle_cli(opt: Options) -> Result<(), Error> {
     match opt {
         Options::Generate { net, uncompressed, address_type } => {
             let secp = Secp256k1::signing_only();
@@ -102,7 +131,7 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             let sig = base64::decode(&signature)
                 .map_err(|_| ClapError::with_description("The signature isn't a valid base64", ClapErrorKind::ValueValidation))?;
             if sig.len() != 65 {
-                return Err(invalid_sig());
+                return Err(invalid_sig().into());
             }
             let recid = RecoveryId::from_i32(i32::from((sig[0] - 27) & 3)).map_err(|_| invalid_sig())?;
             let recsig = RecoverableSignature::from_compact(&sig[1..], recid).map_err(|_| invalid_sig())?;
@@ -128,7 +157,7 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
                     )
                 }
             } else {
-                println!("Failed Verifying the signature");
+                return Err(Error::VerificationFailed);
             }
         }
     };
@@ -145,5 +174,53 @@ fn generate_key(mut source: HKDFExpand) -> SecretKey {
         } else {
             source.expand(INFO, &mut key);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::Options;
+    use crate::{handle_cli, AddressType, Error};
+    use bitcoin::{Network, PrivateKey};
+    use std::mem;
+
+    const MSG: &str = "Testing this thing";
+
+    #[test]
+    fn test_generate() {
+        let opt = Options::Generate { net: Network::Bitcoin, uncompressed: false, address_type: AddressType::P2shwpkh };
+        handle_cli(opt).unwrap();
+    }
+
+    #[test]
+    fn test_sign() {
+        let opt = Options::Sign {
+            privkey: PrivateKey::from_wif("KyD7YaaoguEgSCKPWVtudxUx9cfx4Sv9X4uxtpt3nVuB8jqkHxfH").unwrap(),
+            message: MSG.to_string(),
+        };
+        handle_cli(opt).unwrap();
+    }
+
+    #[test]
+    fn test_verify() {
+        let opt = Options::Verify {
+            address: "1HtJJJRNLWyTBB9xNYa2tN9Gsfjbji9wdy".parse().unwrap(), // "KysPSSWeoimuCpq8eTFNBPTYCXkeCCzDEZPKjkMoHu6SBCGBW9yQ".
+            message: MSG.to_string(),
+            signature: "HyMkfamQtiO8pf1kKcC8+Q20Ami3/Yn4H0h6/FEzfybAYyUbpHRdcTvvz8u9DwIRfHzeZDbol7dzM1sUjzR3yLk=".to_string(),
+        };
+        handle_cli(opt).unwrap();
+    }
+
+    #[test]
+    fn test_verify_fail() {
+        let mut msg = MSG.to_string();
+        msg.push('1');
+        let opt = Options::Verify {
+            address: "1HtJJJRNLWyTBB9xNYa2tN9Gsfjbji9wdy".parse().unwrap(), // "KysPSSWeoimuCpq8eTFNBPTYCXkeCCzDEZPKjkMoHu6SBCGBW9yQ".
+            message: msg,
+            signature: "HyMkfamQtiO8pf1kKcC8+Q20Ami3/Yn4H0h6/FEzfybAYyUbpHRdcTvvz8u9DwIRfHzeZDbol7dzM1sUjzR3yLk=".to_string(),
+        };
+        let err = handle_cli(opt).unwrap_err();
+        assert_eq!(mem::discriminant(&err), mem::discriminant(&Error::VerificationFailed));
     }
 }
