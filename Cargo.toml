@@ -10,3 +10,5 @@ edition = "2018"
 structopt = "0.3"
 bitcoin = "0.21"
 getrandom = "0.1"
+secp256k1 = { version = "0.15", features = ["recovery", "endomorphism"] }
+base64 = "0.10"

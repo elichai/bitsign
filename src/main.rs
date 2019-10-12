@@ -11,6 +11,8 @@ use std::io::BufRead;
 use std::{io, sync::atomic};
 use structopt::clap::{Error as ClapError, ErrorKind as ClapErrorKind};
 use structopt::StructOpt;
+use bitcoin::util::misc;
+use secp256k1::Message;
 
 const INFO: &[u8] = b"bitsign";
 
@@ -38,6 +40,7 @@ fn main() {
 }
 
 fn handle_cli(opt: Options) -> Result<(), ClapError> {
+    let secp = Secp256k1::signing_only();
     match opt {
         Options::Generate { net, uncompressed, address_type } => {
             let mut entropy = vec![0u8; 32];
@@ -50,7 +53,6 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             let key = generate_key(hkdf);
 
             let mut privkey = PrivateKey { compressed: !uncompressed, network: net, key };
-            let secp = Secp256k1::signing_only();
             let pubkey = privkey.public_key(&secp);
             let address = match address_type {
                 AddressType::P2pkh => Address::p2pkh(&pubkey, net),
@@ -64,6 +66,28 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             atomic::compiler_fence(atomic::Ordering::SeqCst);
             unsafe {
                 cleanup! {entropy.as_mut_ptr(), entropy.len()}
+                cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
+            }
+            atomic::compiler_fence(atomic::Ordering::SeqCst);
+        },
+        Options::Sign { mut privkey, message } => {
+            let hash = misc::signed_msg_hash(&message);
+            let msg = Message::from_slice(&hash[..]).unwrap(); // Can never panic because it's the right size.
+            let (id, sig) = secp.sign_recoverable(&msg, &privkey.key).serialize_compact();
+            //vchSig[0] = 27 + rec + (fCompressed ? 4 : 0);
+            let mut rec_sig = [0u8; 65];
+            rec_sig[1..].copy_from_slice(&sig);
+            rec_sig[0] = if privkey.compressed {
+                27 + id.to_i32() as u8 + 4
+            } else {
+                27 + id.to_i32() as u8
+            };
+            let sig = base64::encode(&rec_sig[..]);
+            println!("Signed Message: {}", sig);
+
+            // Cleanup
+            atomic::compiler_fence(atomic::Ordering::SeqCst);
+            unsafe {
                 cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
             }
             atomic::compiler_fence(atomic::Ordering::SeqCst);

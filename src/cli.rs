@@ -1,5 +1,5 @@
 use crate::AddressType;
-use bitcoin::Network;
+use bitcoin::{Network, PrivateKey};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -18,6 +18,14 @@ pub enum Options {
         #[structopt(name = "type", default_value = "p2wpkh", parse(try_from_str = parse_address_type), long = "type")]
         address_type: AddressType,
     },
+    /// Sign a message using your bitcoin address.
+    Sign {
+        /// A WIF private key.
+        #[structopt(parse(try_from_str = PrivateKey::from_wif))]
+        privkey: PrivateKey,
+        /// The message to sign on.
+        message: String,
+    }
 }
 
 fn parse_address_type(src: &str) -> Result<AddressType, &'static str> {
