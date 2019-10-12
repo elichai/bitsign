@@ -9,12 +9,12 @@ pub enum Options {
     Generate {
         // TODO: Rename Bitcoin to Mainnet.
         // TODO: Make lowercase.
-        /// Choose the desired netwrok: bitcoin/regtest/testnet (default: bitcoin)
+        /// Choose the desired netwrok: bitcoin/regtest/testnet
         #[structopt(default_value = "bitcoin", parse(try_from_str), long = "net")]
         net: Network,
         /// Produce uncompressed keys (not recommended)
         uncompressed: bool,
-        ///Choose an address type p2pkh/p2wpkh/p2shwpkh (default: p2wpkh).
+        ///Choose an address type p2pkh/p2wpkh/p2shwpkh
         #[structopt(name = "type", default_value = "p2wpkh", parse(try_from_str = parse_address_type), long = "type")]
         address_type: AddressType,
     },

@@ -85,7 +85,7 @@ fn handle_cli(opt: Options) -> Result<(), ClapError> {
             rec_sig[1..].copy_from_slice(&sig);
             rec_sig[0] = if privkey.compressed { 27 + id.to_i32() as u8 + 4 } else { 27 + id.to_i32() as u8 };
             let sig = base64::encode(&rec_sig[..]);
-            println!("Signed Message: {}", sig);
+            println!("Message Signed. Signature: {}", sig);
 
             // Cleanup
             atomic::compiler_fence(atomic::Ordering::SeqCst);
