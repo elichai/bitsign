@@ -23,8 +23,9 @@ Generating keys:
 
 The tool will draw randomness from the OS, but for the paranoid users it also lets you input your own entropy by hitting random keys at stdin.
 
-Optionally you can pass `--type` for p2pkh/p2wpkh/p2shwpkh [default: p2wpkh]. and `--net` for bitcoin/regtest/testnet [default: bitcoin].
-or even `--uncompressed`.
+Optionally you can pass `--type` for p2pkh/p2wpkh/p2shwpkh [default: p2wpkh]. <br>
+and `--net` for bitcoin/regtest/testnet [default: bitcoin]. <br>
+or even `--uncompressed`(If for some reason you really need uncompressed keys).
 
 Sign a message: 
 `bitsign sign <privkey> <message>` 

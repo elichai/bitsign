@@ -13,6 +13,7 @@ pub enum Options {
         #[structopt(default_value = "bitcoin", parse(try_from_str), long = "net")]
         net: Network,
         /// Produce uncompressed keys (not recommended)
+        #[structopt(long)]
         uncompressed: bool,
         ///Choose an address type p2pkh/p2wpkh/p2shwpkh
         #[structopt(name = "type", default_value = "p2wpkh", parse(try_from_str = parse_address_type), long = "type")]
