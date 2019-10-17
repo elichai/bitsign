@@ -18,7 +18,7 @@ pub enum Options {
         ///Choose an address type p2pkh/p2wpkh/p2shwpkh
         #[structopt(name = "type", default_value = "p2wpkh", parse(try_from_str = parse_address_type), long = "type")]
         address_type: AddressType,
-        /// Return the results as json
+        /// Return the results as json (notice that with the json option you cannot provide your own randomness)
         #[structopt(long)]
         json: bool,
     },

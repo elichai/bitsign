@@ -220,9 +220,11 @@ mod tests {
 
     const MSG: &str = "Testing this thing";
 
+    // TODO: Add unix only tests with `stdio-override` to check output.
+
     #[test]
     fn test_generate() {
-        let opt = Options::Generate { net: Network::Bitcoin, uncompressed: false, address_type: AddressType::P2shwpkh };
+        let opt = Options::Generate { net: Network::Bitcoin, uncompressed: false, address_type: AddressType::P2shwpkh, json: true };
         handle_cli(opt).unwrap();
     }
 
@@ -231,6 +233,7 @@ mod tests {
         let opt = Options::Sign {
             privkey: PrivateKey::from_wif("KyD7YaaoguEgSCKPWVtudxUx9cfx4Sv9X4uxtpt3nVuB8jqkHxfH").unwrap(),
             message: MSG.to_string(),
+            json: false,
         };
         handle_cli(opt).unwrap();
     }
@@ -241,6 +244,7 @@ mod tests {
             address: "1HtJJJRNLWyTBB9xNYa2tN9Gsfjbji9wdy".parse().unwrap(), // "KysPSSWeoimuCpq8eTFNBPTYCXkeCCzDEZPKjkMoHu6SBCGBW9yQ".
             message: MSG.to_string(),
             signature: "HyMkfamQtiO8pf1kKcC8+Q20Ami3/Yn4H0h6/FEzfybAYyUbpHRdcTvvz8u9DwIRfHzeZDbol7dzM1sUjzR3yLk=".to_string(),
+            json: false,
         };
         handle_cli(opt).unwrap();
     }
@@ -253,6 +257,7 @@ mod tests {
             address: "1HtJJJRNLWyTBB9xNYa2tN9Gsfjbji9wdy".parse().unwrap(), // "KysPSSWeoimuCpq8eTFNBPTYCXkeCCzDEZPKjkMoHu6SBCGBW9yQ".
             message: msg,
             signature: "HyMkfamQtiO8pf1kKcC8+Q20Ami3/Yn4H0h6/FEzfybAYyUbpHRdcTvvz8u9DwIRfHzeZDbol7dzM1sUjzR3yLk=".to_string(),
+            json: false,
         };
         let err = handle_cli(opt).unwrap_err();
         assert_eq!(mem::discriminant(&err), mem::discriminant(&Error::VerificationFailed));
