@@ -11,6 +11,7 @@ use bitcoin::{Address, PrivateKey};
 use cli::Options;
 use getrandom::getrandom;
 use hkdf::{HKDFExpand, HKDFExtract};
+use serde_json::{self, json, Value};
 use std::io::BufRead;
 use std::{error, fmt, io, process, sync::atomic};
 use structopt::clap::{Error as ClapError, ErrorKind as ClapErrorKind};
@@ -72,15 +73,17 @@ impl From<ClapError> for Error {
 
 fn handle_cli(opt: Options) -> Result<(), Error> {
     match opt {
-        Options::Generate { net, uncompressed, address_type } => {
+        Options::Generate { net, uncompressed, address_type, json } => {
             let secp = Secp256k1::signing_only();
 
             let mut entropy = vec![0u8; 32];
             getrandom(&mut entropy).unwrap();
 
             entropy.reserve(128);
-            println!("Input your own randomness by hitting keys randomly and then hit 'enter' when you're done: (This will be on top of random entropy from the OS)");
-            io::stdin().lock().read_until(b'\n', &mut entropy).unwrap();
+            if !json {
+                println!("Input your own randomness by hitting keys randomly and then hit 'enter' when you're done: (This will be on top of random entropy from the OS)");
+                io::stdin().lock().read_until(b'\n', &mut entropy).unwrap();
+            }
             let hkdf = HKDFExtract::extract(&[], &entropy);
             let key = generate_key(hkdf);
 
@@ -91,19 +94,37 @@ fn handle_cli(opt: Options) -> Result<(), Error> {
                 AddressType::P2Wpkh => Address::p2wpkh(&pubkey, net),
                 AddressType::P2shwpkh => Address::p2shwpkh(&pubkey, net),
             };
-            println!("\nBitcoin Address: {}", address.to_string());
-            println!("WIF private key: {}", privkey.to_wif());
+            let mut address_str = address.to_string();
+            let mut privkey_str = privkey.to_wif();
+            let mut value = Value::Null;
+            if json {
+                value = json!({
+                "address": address_str,
+                "privkey": privkey_str
+                });
+                println!("{}", serde_json::to_string_pretty(&value).unwrap()); // Shouldn't fail as it's already a Value.
+            } else {
+                println!("\nBitcoin Address: {}", address.to_string());
+                println!("WIF private key: {}", privkey.to_wif());
+            }
 
             // Cleanup
             atomic::compiler_fence(atomic::Ordering::SeqCst);
             unsafe {
                 cleanup! {entropy.as_mut_ptr(), entropy.len()}
+                cleanup! {address_str.as_mut_ptr(), address_str.len()}
+                cleanup! {privkey_str.as_mut_ptr(), privkey_str.len()}
                 cleanup! {privkey.key.as_mut_ptr(), SECRET_KEY_SIZE}
+                if let Some(obj) = value.as_object_mut() {
+                    if let Some(Value::String(s)) = obj.get_mut("privkey") {
+                        cleanup! {s.as_mut_ptr(), s.len()}
+                    }
+                }
             }
             atomic::compiler_fence(atomic::Ordering::SeqCst);
         }
 
-        Options::Sign { mut privkey, message } => {
+        Options::Sign { mut privkey, message, json } => {
             let secp = Secp256k1::signing_only();
 
             let hash = misc::signed_msg_hash(&message);
@@ -114,7 +135,14 @@ fn handle_cli(opt: Options) -> Result<(), Error> {
             rec_sig[1..].copy_from_slice(&sig);
             rec_sig[0] = if privkey.compressed { 27 + id.to_i32() as u8 + 4 } else { 27 + id.to_i32() as u8 };
             let sig = base64::encode(&rec_sig[..]);
-            println!("Message Signed. Signature: {}", sig);
+            if json {
+                let value = json!({
+                "signature": sig,
+                });
+                println!("{}", serde_json::to_string_pretty(&value).unwrap()); // Shouldn't fail as it's already a Value.
+            } else {
+                println!("Message Signed. Signature: {}", sig);
+            }
 
             // Cleanup
             atomic::compiler_fence(atomic::Ordering::SeqCst);
@@ -124,7 +152,7 @@ fn handle_cli(opt: Options) -> Result<(), Error> {
             atomic::compiler_fence(atomic::Ordering::SeqCst);
         }
 
-        Options::Verify { address, message, signature } => {
+        Options::Verify { address, message, signature, json } => {
             let secp = Secp256k1::verification_only();
 
             let invalid_sig = || ClapError::with_description("Invalid Signature", ClapErrorKind::ValueValidation);
@@ -148,7 +176,13 @@ fn handle_cli(opt: Options) -> Result<(), Error> {
                 Payload::WitnessProgram { .. } => (Address::p2wpkh(&pubkey, address.network), false),
                 Payload::ScriptHash(_) => (Address::p2shwpkh(&pubkey, address.network), false),
             };
-            if address == restore {
+            if json {
+                let value = json!({
+                "verified": address == restore,
+                "core_supported": core_supported,
+                });
+                println!("{}", serde_json::to_string_pretty(&value).unwrap()); // Shouldn't fail as it's already a Value.
+            } else if address == restore {
                 if core_supported {
                     println!("Signature Verified!");
                 } else {

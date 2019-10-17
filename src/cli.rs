@@ -18,6 +18,9 @@ pub enum Options {
         ///Choose an address type p2pkh/p2wpkh/p2shwpkh
         #[structopt(name = "type", default_value = "p2wpkh", parse(try_from_str = parse_address_type), long = "type")]
         address_type: AddressType,
+        /// Return the results as json
+        #[structopt(long)]
+        json: bool,
     },
     /// Sign a message using your bitcoin address.
     Sign {
@@ -26,6 +29,9 @@ pub enum Options {
         privkey: PrivateKey,
         /// The message to sign on.
         message: String,
+        /// Return the results as json
+        #[structopt(long)]
+        json: bool,
     },
     /// Verify a message signed by a bitcoin address.
     Verify {
@@ -36,6 +42,9 @@ pub enum Options {
         message: String,
         /// The Base64 Signature.
         signature: String,
+        /// Return the results as json
+        #[structopt(long)]
+        json: bool,
     },
 }
 
